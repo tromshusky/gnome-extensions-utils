@@ -87,6 +87,7 @@ export default class FeatureManager {
         };
         const newFeature = this.new(foo(wrappedSetTimeout));
         this.#features.get(newFeature).timeouts = activeTimeouts;
+        return newFeature;
     }
 
     disableAll() {
