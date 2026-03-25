@@ -3,6 +3,8 @@
 /** @typedef ConnectFunction @type { (event: string, callback: Function) => number } */
 /** @typedef Connectable @type { { connect: ConnectFunction, connectAfter: ConnectFunction, disconnect: (id: number) => undefined } } */
 /** @typedef ActiveEventListener @type { { id: number, connectable: Connectable } } */
+/** @typedef NewParams @type { { onEnable: Function, onDisable: Function, eventListeners: Array } } */
+/** @typedef FooType @type { (setTimeout: Function) => NewParams } */
 
 class ManagedFeature {
 
@@ -65,14 +67,15 @@ export default class FeatureManager {
     /** @type { Map < ManagedFeature, { eventListeners: ActiveEventListener[]; timeouts: Set<number> } > } */
     #features = new Map();
 
-    new({ onEnable = noOp, onDisable = noOp, eventListeners = [] }) {
+    new(/** @type { NewParams } */ { onEnable = noOp, onDisable = noOp, eventListeners = [] }) {
         const activeEventListeners = [];
         const newFeature = new ManagedFeature(onEnable, onDisable, eventListeners, activeEventListeners, undefined);
         this.#features.set(newFeature, { eventListeners: activeEventListeners, timeouts: undefined });
         return newFeature;
     }
 
-    newWithTimeouts(foo) {
+    
+    newWithTimeouts(/** @type {FooType} */ foo) {
         /** @type {Set<number>} */
         const activeTimeouts = new Set();
         /** @type {typeof setTimeout} */
