@@ -3,8 +3,9 @@
 /** @typedef ConnectFunction @type { (event: string, callback: Function) => number } */
 /** @typedef Connectable @type { { connect: ConnectFunction, connectAfter: ConnectFunction, disconnect: (id: number) => undefined } } */
 /** @typedef ActiveEventListener @type { { id: number, connectable: Connectable } } */
-/** @typedef NewParams @type { { onEnable: Function, onDisable: Function, eventListeners: Array } } */
-/** @typedef FooType @type { (setTimeout: Function) => NewParams } */
+/** @typedef SetTimeoutFunction @type {typeof setTimeout} */
+/** @typedef NewParams @type { { onEnable: Function, onDisable: Function, eventListeners: Array<EventListenerData> } } */
+/** @typedef NewParamsBuilder @type { (setTimeout: SetTimeoutFunction) => NewParams } */
 
 class ManagedFeature {
 
@@ -75,7 +76,7 @@ export default class FeatureManager {
     }
 
     
-    newWithTimeouts(/** @type {FooType} */ foo) {
+    newWithTimeouts(/** @type {NewParamsBuilder} */ foo) {
         /** @type {Set<number>} */
         const activeTimeouts = new Set();
         /** @type {typeof setTimeout} */
