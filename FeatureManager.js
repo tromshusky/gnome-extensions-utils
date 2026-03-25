@@ -7,27 +7,32 @@
 /** @typedef NewParams @type { { onEnable: Function, onDisable: Function, eventListeners: Array<EventListenerData> } } */
 /** @typedef NewParamsBuilder @type { (setTimeout: SetTimeoutFunction) => NewParams } */
 
+class OnGoing {
+    /** @type {Array<ActiveEventListener>} */
+    eventListeners = [];
+    /** @type {Set<number>} */
+    timeouts = new Set();
+}
+
 class ManagedFeature {
 
     #onEnable;
     #onDisable;
     #eventListeners;
-    #activeEventListeners;
-    #activeTimeouts;
+    #onGoing;
 
     /**
      * @param {Function} onEnable
      * @param {Function} onDisable
      * @param {EventListenerData[]} eventListeners
-     * @param {ActiveEventListener[]} activeEventListeners
-     * @param {Set<number>} activeTimeouts
+     * @param {OnGoing} onGoings
      */
-    constructor(onEnable, onDisable, eventListeners, activeEventListeners, activeTimeouts) {
+    
+    constructor(onEnable, onDisable, eventListeners, onGoings) {
         this.#onEnable = onEnable;
         this.#onDisable = onDisable;
         this.#eventListeners = eventListeners;
-        this.#activeEventListeners = activeEventListeners;
-        this.#activeTimeouts = activeTimeouts;
+        this.#onGoing = onGoings;
     }
 
     enable() {
@@ -36,14 +41,14 @@ class ManagedFeature {
     }
 
     disable() {
-        this.#onDisable();
         this.#disconnect();
         this.#clearTimeouts();
+        this.#onDisable();
     }
 
     #disconnect() {
-        const disconnectAnswer = this.#activeEventListeners.map(elData => elData.connectable.disconnect(elData.id));
-        this.#activeEventListeners.length = 0;
+        const disconnectAnswer = this.#onGoing.eventListeners.map(elData => elData.connectable.disconnect(elData.id));
+        this.#onGoing.eventListeners.length = 0;
         return disconnectAnswer;
     }
 
@@ -53,11 +58,11 @@ class ManagedFeature {
             const id = connectable.connect(event, callback);
             return { id, connectable };
         });
-        this.#activeEventListeners.push(...activeELs);
+        this.#onGoing.eventListeners.push(...activeELs);
     }
 
     #clearTimeouts() {
-        this.#activeTimeouts.forEach(number => clearTimeout(number));
+        this.#onGoing.timeouts.forEach(number => clearTimeout(number));
     }
 }
 
@@ -65,32 +70,32 @@ const noOp = () => undefined;
 
 
 export default class FeatureManager {
-    /** @type { Map < ManagedFeature, { eventListeners: ActiveEventListener[]; timeouts: Set<number> } > } */
-    #features = new Map();
+    /** @type { Map < ManagedFeature, OnGoing > } */
+    #onGoings = new Map();
 
     new(/** @type { NewParams } */ { onEnable = noOp, onDisable = noOp, eventListeners = [] }) {
-        const activeEventListeners = [];
-        const newFeature = new ManagedFeature(onEnable, onDisable, eventListeners, activeEventListeners, undefined);
-        this.#features.set(newFeature, { eventListeners: activeEventListeners, timeouts: undefined });
+        const onGoing = new OnGoing();
+        const newFeature = new ManagedFeature(onEnable, onDisable, eventListeners, onGoing);
+        this.#onGoings.set(newFeature, onGoing);
         return newFeature;
     }
 
-    
+
     newWithTimeouts(/** @type {NewParamsBuilder} */ foo) {
         /** @type {Set<number>} */
         const activeTimeouts = new Set();
         /** @type {typeof setTimeout} */
         const wrappedSetTimeout = (...args) => {
-            const id = setTimeout(...args);
+            const id = globalThis.setTimeout(...args);
             activeTimeouts.add(id);
             return id;
         };
         const newFeature = this.new(foo(wrappedSetTimeout));
-        this.#features.get(newFeature).timeouts = activeTimeouts;
+        this.#onGoings.get(newFeature).timeouts = activeTimeouts;
         return newFeature;
     }
 
     disableAll() {
-        return this.#features.forEach((registeredFeature, featureHandle) => featureHandle.disable());
+        return this.#onGoings.forEach((registeredFeature, featureHandle) => featureHandle.disable());
     }
 }
