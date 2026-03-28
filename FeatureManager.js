@@ -1,101 +1,96 @@
+/** @typedef ConnectFunction @type {Function} */
+/** @typedef DisconnectFunction @type {Function} */
+/** @typedef Connectable @type {{connect:ConnectFunction, disconnect:DisconnectFunction}} */
 
-/** @typedef EventListenerData @type { { connectable: Connectable, event: String, callback: Function } } */
-/** @typedef ConnectFunction @type { (event: string, callback: Function) => number } */
-/** @typedef Connectable @type { { connect: ConnectFunction, connectAfter: ConnectFunction, disconnect: (id: number) => undefined } } */
-/** @typedef ActiveEventListener @type { { id: number, connectable: Connectable } } */
-/** @typedef SetTimeoutFunction @type {typeof setTimeout} */
-/** @typedef NewParams @type { { onEnable: Function, onDisable: Function, eventListeners: Array<EventListenerData> } } */
-/** @typedef NewParamsBuilder @type { (setTimeout: SetTimeoutFunction) => NewParams } */
+/** @typedef OnEnablePreFunction @type {(tools: OnEnableToolbox) => void} */
+/** @typedef OnDisableFunction @type {Function} */
 
-class OnGoing {
-    /** @type {Array<ActiveEventListener>} */
-    eventListeners = [];
+/** @typedef SetTimeoutTool @type {typeof globalThis.setTimeout} */
+/** @typedef OnEnableToolbox @type {{setTimeout: SetTimeoutTool}} */
+
+/** @typedef FeatureSchema @type {{onEnable?: OnEnablePreFunction, onDisable?: OnDisableFunction}} */
+
+/** @typedef SetTimeout @type {globalThis.setTimeout} */
+
+const noop = () => { };
+
+class EventListenerSchema {
+    /** @type Connectable */
+    connectable;
+    /** @type string */
+    event;
+    /** @type Function */
+    callback;
+}
+
+
+class Feature {
+    /** @type OnEnablePreFunction */
+    onEnable;
+    /** @type OnDisableFunction */
+    onDisable;
+    constructor(/** @type FeatureSchema */ f) {
+        this.onEnable = f?.onEnable ?? noop;
+        this.onDisable = f?.onDisable ?? noop;
+    }
+}
+
+class FeatureData {
     /** @type {Set<number>} */
-    timeouts = new Set();
+    timeouts;
+    /** @type {Set} */
+    eventListeners;
 }
 
-class ManagedFeature {
 
-    #onEnable;
-    #onDisable;
-    #eventListeners;
-    #onGoing;
+class FeatureManager {
+    /** @type {Map<Feature,FeatureData} */
+    #features;
+    enable(/** @type {Feature} */ feat) {
+        const existingFeature = this.#features.get(feat);
+        const timeouts = existingFeature?.timeouts ?? new Set();
+        const eventListeners = existingFeature?.eventListeners ?? new Set();
+        if (!existingFeature) {
 
-    /**
-     * @param {Function} onEnable
-     * @param {Function} onDisable
-     * @param {EventListenerData[]} eventListeners
-     * @param {OnGoing} onGoings
-     */
-    
-    constructor(onEnable, onDisable, eventListeners, onGoings) {
-        this.#onEnable = onEnable;
-        this.#onDisable = onDisable;
-        this.#eventListeners = eventListeners;
-        this.#onGoing = onGoings;
-    }
+            this.#features.set(feat, { timeouts, eventListeners });
+        }
 
-    enable() {
-        this.#onEnable();
-        this.#connect();
-    }
-
-    disable() {
-        this.#disconnect();
-        this.#clearTimeouts();
-        this.#onDisable();
-    }
-
-    #disconnect() {
-        const disconnectAnswer = this.#onGoing.eventListeners.map(elData => elData.connectable.disconnect(elData.id));
-        this.#onGoing.eventListeners.length = 0;
-        return disconnectAnswer;
-    }
-
-    #connect() {
-        this.#disconnect();
-        const activeELs = this.#eventListeners.map(({ connectable, event, callback }) => {
-            const id = connectable.connect(event, callback);
-            return { id, connectable };
-        });
-        this.#onGoing.eventListeners.push(...activeELs);
-    }
-
-    #clearTimeouts() {
-        this.#onGoing.timeouts.forEach(number => clearTimeout(number));
-    }
-}
-
-const noOp = () => undefined;
-
-
-export default class FeatureManager {
-    /** @type { Map < ManagedFeature, OnGoing > } */
-    #onGoings = new Map();
-
-    new(/** @type { NewParams } */ { onEnable = noOp, onDisable = noOp, eventListeners = [] }) {
-        const onGoing = new OnGoing();
-        const newFeature = new ManagedFeature(onEnable, onDisable, eventListeners, onGoing);
-        this.#onGoings.set(newFeature, onGoing);
-        return newFeature;
-    }
-
-
-    newWithTimeouts(/** @type {NewParamsBuilder} */ foo) {
-        /** @type {Set<number>} */
-        const activeTimeouts = new Set();
-        /** @type {typeof setTimeout} */
-        const wrappedSetTimeout = (...args) => {
-            const id = globalThis.setTimeout(...args);
-            activeTimeouts.add(id);
+        const /** @type {SetTimeout} */ wrappedSetTimeout = (callback, time, ...args) => {
+            const id = globalThis.setTimeout(callback, time, ...args);
+            timeouts.add(id);
             return id;
-        };
-        const newFeature = this.new(foo(wrappedSetTimeout));
-        this.#onGoings.get(newFeature).timeouts = activeTimeouts;
-        return newFeature;
+        }
+        feat.onEnable({ setTimeout: wrappedSetTimeout })
     }
-
+    disable(/** @type {Feature} */ feat) {
+        const timeouts = this.#features.get(feat);
+        timeouts.forEach(id => globalThis.clearTimeout(id));
+        this.#features.delete(feat);
+        feat.onDisable();
+    }
     disableAll() {
-        return this.#onGoings.forEach((registeredFeature, featureHandle) => featureHandle.disable());
+        this.#features.forEach((timeouts, feature) => this.disable(feature));
     }
 }
+
+// example usage
+const fm = new FeatureManager();
+
+const feat1onEnable = (/** @type OnEnableToolbox */ { setTimeout }) => {
+    console.log("feature 1 enabled");
+    setTimeout(() => console.log("10 seconds passed"), 10000);
+    fm.enable(feat2);
+}
+const feat1onDisable = () => {
+    console.log("feature 1 disabled");
+}
+
+const feat1 = new Feature({ onEnable: feat1onEnable, onDisable: feat1onDisable });
+const feat2 = new Feature({
+    onEnable: () => {
+        fm.disable(feat1);
+        console.log("feature2 enabled");
+    }
+});
+
+fm.enable(feat1);
