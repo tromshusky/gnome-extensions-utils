@@ -1,4 +1,4 @@
-/** @typedef ConnectionHandler @type {(...args: any[]) => any} */
+/** @typedef ConnectionHandler @type {Function} */
 /** @typedef ConnectFunction @type {(event:string, callback: ConnectionHandler) => number} */
 /** @typedef DisconnectFunction @type {(id: number) => void} */
 
@@ -10,14 +10,22 @@
 
 
 
-/** @typedef Connectable @type {{connect: ConnectFunction, disconnect: DisconnectFunction}} */
-/** @typedef EventListener1 @type {{connectable: Connectable, event: string, callback: Function}} */
+// /** @typedef Connectable @type {{connect: ConnectFunction, disconnect: DisconnectFunction}} */
+/** @typedef EventListener1 @type {{connectable: Connectable, event: string, callback: ConnectionHandler}} */
 /** @typedef Feature @type {{onEnable?:Function, onDisable?: Function, eventListeners?: Array<EventListener1>}} */
 
-/** @typedef EnabledFeatureData @type {{eventListeners:Set, timeouts:Set<number>}} */
+/** @typedef ActiveEventListenerData @type {{connectable: Connectable, id: number}} */
+/** @typedef EnabledFeatureData @type {{feature: Feature, eventListeners:Set<ActiveEventListenerData>, timeouts:Set<number>}} */
 
 const noop = () => { };
 
+
+class Connectable {
+    /** @type {ConnectFunction} */
+    connect;
+    /** @type {DisconnectFunction} */
+    disconnect;
+}
 
 class FeatureManager {
     #features;
@@ -28,29 +36,55 @@ class FeatureManager {
     }
 
     enableAll() {
-        this.#features.forEach(featureFactory => {
-            const existingFeatData = this.#enabledFeatures.get(featureFactory);
-            const featData = existingFeatData ?? new Map();
-            if (!existingFeatData) {
-                this.#enabledFeatures.set(featureFactory, featData);
-            };
-            const setTimeout = () => {
-                const id = globalThis.setTimeout(handler, timeout, ...args);
-                return id;
-            };
-            featureFactory({ setTimeout })
-        });
+        return this.#features.forEach(featureFactory => this.enable(featureFactory));
     }
 
     disableAll() {
-
+        return this.#enabledFeatures.forEach((featureData, featureFactory) => this.disable(featureFactory));
     }
 
-    enable(/** @type {FeatureFactory} */ f) {
+    enable(/** @type {FeatureFactory} */ featureFactory) {
 
+        const existingFeatData = this.#enabledFeatures.get(featureFactory);
+        if (existingFeatData) {
+            return false;
+        }
+        const featData = { eventListeners: new Set(), timeouts: new Set() };
+
+        /** @type {SetTimeoutTool} */
+        const setTimeout = (handler, timeout, ...args) => {
+            const id = globalThis.setTimeout(handler, timeout, ...args);
+            featData.timeouts.add(id);
+            return id;
+        };
+
+        const feature = featureFactory({ setTimeout });
+        feature.onEnable?.();
+        feature.eventListeners?.forEach(({ connectable, event, callback }) => {
+            const id = connectable.connect(event, callback);
+            featData.eventListeners.add({ connectable, id });
+        });
+
+        this.#enabledFeatures.set(featureFactory, { ...featData, feature });
     }
 
     disable(/** @type {FeatureFactory} */ f) {
+
+        const existingFeatData = this.#enabledFeatures.get(f);
+        if (existingFeatData) {
+
+            existingFeatData.timeouts.forEach(id => {
+                globalThis.clearTimeout(id);
+            });
+            existingFeatData.eventListeners.forEach(el => {
+                el.connectable.disconnect(el.id);
+            });
+
+            existingFeatData.feature.onDisable?.();
+
+        } else {
+            return false;
+        }
 
     }
 }
@@ -76,14 +110,13 @@ export default class FeatureManagerBuilder {
 
 }
 
-
-/** @type {EventListener1} */
-const el1 = ({
-    connectable: undefined,
+// Example use
+const eventListener1 = ({
+    connectable: new Connectable(),
     event: "show",
     callback: console.log
 });
 
-/** @type {FeatureFactory} */
-const ff1 = ({ setTimeout }) => ({ onEnable: console.log, onDisable: console.log, eventListeners: [el1] });
-const fm = FeatureManagerBuilder.empty().addFeature(ff1).build();
+const featureFactory1 = ({ setTimeout }) => ({ onEnable: console.log, onDisable: console.log, eventListeners: [eventListener1] });
+const fm = FeatureManagerBuilder.empty().addFeature(featureFactory1).build();
+fm.enableAll();
