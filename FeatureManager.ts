@@ -1,4 +1,23 @@
-type ConnectionHandler = Function;
+/*
+// Example use 
+
+type EventListenerFactory = (tools: Toolbox) => EventListener;
+
+const eventListener1: EventListenerFactory = ({ setTimeout }) => ({
+    connectable: { connect: () => 4, disconnect: () => { } },
+    event: "show",
+    callback: () => { setTimeout(() => { console.log("hi") }, 1000) }
+});
+
+const featureFactory1: CreateFeature = ({ setTimeout }) => ({ onEnable: console.log, onDisable: console.log, eventListeners: [eventListener1({ setTimeout })] });
+const fm = FeatureManagerConfig.empty().addFeature(featureFactory1).build();
+fm.enableAll();
+
+
+// End of example */
+
+
+type ConnectionHandler = (...args: any[]) => true | unknown;
 type ConnectFunction = (event: string, callback: ConnectionHandler) => number;
 type DisconnectFunction = (id: number) => void;
 type SetTimeoutTool = typeof globalThis.setTimeout;
@@ -100,22 +119,3 @@ export default class FeatureManagerConfig {
     }
 
 }
-
-/*
-// Example use 
-
-type EventListenerFactory = (tools: Toolbox) => EventListener;
-
-const eventListener1: EventListenerFactory = ({ setTimeout }) => ({
-    connectable: { connect: () => 4, disconnect: () => { } },
-    event: "show",
-    callback: () => { setTimeout(() => { console.log("hi") }, 1000) }
-});
-
-const featureFactory1: CreateFeature = ({ setTimeout }) => ({ onEnable: console.log, onDisable: console.log, eventListeners: [eventListener1({ setTimeout })] });
-const fm = FeatureManagerConfig.empty().addFeature(featureFactory1).build();
-fm.enableAll();
-
-
-
-// End of example */

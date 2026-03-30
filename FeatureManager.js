@@ -1,132 +1,115 @@
-/** @typedef ConnectionHandler @type {Function} */
-/** @typedef ConnectFunction @type {(event:string, callback: ConnectionHandler) => number} */
-/** @typedef DisconnectFunction @type {(id: number) => void} */
+/*
+// Example use
+const eventListener1 = ({ setTimeout }) => ({
+    connectable: { connect: () => 4, disconnect: () => { } },
+    event: "show",
+    callback: () => { setTimeout(() => { console.log("hi"); }, 1000); }
+});
+const feature1 = (tools) => ({ onEnable: console.log, onDisable: console.log, eventListeners: [eventListener1(tools)] });
+const fm = FeatureManagerConfig.empty().addFeature(feature1).build();
+fm.enableAll();
 
-/** @typedef SetTimeoutTool @type {typeof globalThis.setTimeout} */
-/** @typedef Toolbox @type {{setTimeout: SetTimeoutTool}} */
 
+// End of example */
 
-/** @typedef FeatureFactory @type {(tools: Toolbox) => Feature} */
-
-/** @typedef Connectable @type {{connect: ConnectFunction, disconnect: DisconnectFunction}} */
-/** @typedef EventListener1 @type {{connectable: Connectable, event: string, callback: ConnectionHandler}} */
-/** @typedef Feature @type {{onEnable?:Function, onDisable?: Function, eventListeners?: Array<EventListener1>}} */
-
-/** @typedef ActiveEventListenerData @type {{connectable: Connectable, id: number}} */
-/** @typedef EnabledFeatureData @type {{feature: Feature, eventListeners:Set<ActiveEventListenerData>, timeouts:Set<number>}} */
-
+/**
+ * @typedef {{
+ *     connectable: Connectable,
+ *     event: string,
+ *     callback: ConnectionHandler
+ *   }} EventListener
+ * @typedef {{ setTimeout: SetTimeout }} Toolbox
+ * @typedef { ( tools: Toolbox ) => Feature } FeatureFactory
+ * @typedef {{
+ *   onEnable?: Function,
+ *   onDisable?: Function,
+ *   eventListeners?: ReadonlyArray<EventListener>
+ * }} Feature
+ * 
+ * @typedef {{ timeouts: Set<number>, eventListeners: Set<ActiveEventListenerData>, feature: Feature }} EnabledFeature
+ * 
+ * @typedef {{ connect: ConnectFunction, disconnect: DisconnectFunction }} Connectable
+ * @typedef {{ connectable: Connectable, id: number }} ActiveEventListenerData
+ * @typedef { typeof globalThis.setTimeout } SetTimeout
+ * @typedef { (...args: any[]) => true | unknown } ConnectionHandler
+ * @typedef { ( event: string, callback: ConnectionHandler ) => number } ConnectFunction
+ * @typedef { ( id: number ) => void } DisconnectFunction
+*/
 
 class FeatureManager {
-
     #features;
-    /** @type {Map<FeatureFactory,EnabledFeatureData>} */
-    #enabledFeatures;
-
-
+    /** @type {Map<FeatureFactory, EnabledFeature>} */
+    #enabledFeatures = new Map();
     constructor(/** @type {Set<FeatureFactory>} */ features) {
         this.#features = features;
-        this.#enabledFeatures = new Map();
     }
 
-    /** @returns {void} */
     enableAll() {
-        return this.#features.forEach(featureFactory => this.enable(featureFactory));
+        this.#features.forEach(featureFactory => this.enable(featureFactory));
     }
 
-    /** @returns {void} */
     disableAll() {
-        return this.#enabledFeatures.forEach((featureData, featureFactory) => this.disable(featureFactory));
+        this.#enabledFeatures.forEach((_, featureFactory) => this.disable(featureFactory));
     }
 
-    /** @returns {boolean} */
-    enable(/** @type {FeatureFactory} */ featureFactory) {
 
+    enable(/** @type {FeatureFactory} */ featureFactory) {
         const existingFeatData = this.#enabledFeatures.get(featureFactory);
         if (existingFeatData) {
             return false;
-        } else {
-            const featData = { eventListeners: new Set(), timeouts: new Set() };
-
-            /** @type {SetTimeoutTool} */
-            const setTimeout = (handler, timeout, ...args) => {
+        }
+        else {
+            const eventListeners = new Set();
+            const timeouts = new Set();
+            const setTimeout = /** @type {SetTimeout} */ (handler, timeout, ...args) => {
                 const id = globalThis.setTimeout(handler, timeout, ...args);
-                featData.timeouts.add(id);
+                timeouts.add(id);
                 return id;
             };
-
             const feature = featureFactory({ setTimeout });
             feature.onEnable?.();
             feature.eventListeners?.forEach(({ connectable, event, callback }) => {
                 const id = connectable.connect(event, callback);
-                featData.eventListeners.add({ connectable, id });
+                eventListeners.add({ connectable, id });
             });
-
-            this.#enabledFeatures.set(featureFactory, { ...featData, feature });
+            this.#enabledFeatures.set(featureFactory, { timeouts, eventListeners, feature });
             return true;
         }
-
     }
 
-    /** @returns {boolean} */
     disable(/** @type {FeatureFactory} */ featureFactory) {
-
         const existingFeatData = this.#enabledFeatures.get(featureFactory);
         if (existingFeatData) {
-
             existingFeatData.timeouts.forEach(id => {
                 globalThis.clearTimeout(id);
             });
             existingFeatData.eventListeners.forEach(el => {
                 el.connectable.disconnect(el.id);
             });
-
             existingFeatData.feature.onDisable?.();
-
             this.#enabledFeatures.delete(featureFactory);
             return true;
-        } else {
+        }
+        else {
             return false;
         }
-
     }
 }
 
-export default class FeatureManagerBuilder {
+export default class FeatureManagerConfig {
+    /** @type {Set<FeatureFactory>} */
     #features;
-    constructor(/** @type {Set<FeatureFactory>} */ features = new Set()) {
+    constructor(features = new Set()) {
         this.#features = features;
     }
-
     static empty() {
-        return new FeatureManagerBuilder();
+        return new FeatureManagerConfig();
     }
-
-    addFeature(/** @type {FeatureFactory} */ ff) {
-        const newSet = new Set([...this.#features, ff]);
-        return new FeatureManagerBuilder(newSet);
+    addFeature(/** @type {FeatureFactory} */ createFeature) {
+        const newSet = new Set([...this.#features, createFeature]);
+        return new FeatureManagerConfig(newSet);
     }
-
     build() {
         return new FeatureManager(this.#features);
     }
-
 }
-
-
-
-/*// Example use 
-
-
-const eventListener1 = ({
-    connectable: { connect: () => 4, disconnect: () => { } },
-    event: "show",
-    callback: console.log
-});
-
-const featureFactory1 = ({ setTimeout }) => ({ onEnable: console.log, onDisable: console.log, eventListeners: [eventListener1] });
-const fm = FeatureManagerBuilder.empty().addFeature(featureFactory1).build();
-fm.enableAll();
-
-
-
-// End of example */
