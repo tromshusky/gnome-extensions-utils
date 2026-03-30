@@ -68,9 +68,9 @@ class FeatureManager {
     }
 
     /** @returns {boolean} */
-    disable(/** @type {FeatureFactory} */ f) {
+    disable(/** @type {FeatureFactory} */ featureFactory) {
 
-        const existingFeatData = this.#enabledFeatures.get(f);
+        const existingFeatData = this.#enabledFeatures.get(featureFactory);
         if (existingFeatData) {
 
             existingFeatData.timeouts.forEach(id => {
@@ -82,7 +82,7 @@ class FeatureManager {
 
             existingFeatData.feature.onDisable?.();
 
-            this.#enabledFeatures.delete(f);
+            this.#enabledFeatures.delete(featureFactory);
             return true;
         } else {
             return false;
