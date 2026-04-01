@@ -19,14 +19,14 @@ fm.enableAll();
  *     callback: ConnectionHandler
  *   }} EventListener
  * @typedef {{ setTimeout: SetTimeout }} Toolbox
- * @typedef { ( tools: Toolbox ) => Feature } FeatureFactory
+ * @typedef { ( tools: Toolbox ) => CompiledFeature } Feature
  * @typedef {{
  *   onEnable?: Function,
  *   onDisable?: Function,
  *   eventListeners?: ReadonlyArray<EventListener>
- * }} Feature
+ * }} CompiledFeature
  * 
- * @typedef {{ timeouts: Set<number>, eventListeners: Set<ActiveEventListenerData>, feature: Feature }} EnabledFeature
+ * @typedef {{ timeouts: Set<number>, eventListeners: Set<ActiveEventListenerData>, feature: CompiledFeature }} EnabledFeature
  * 
  * @typedef {{ connect: ConnectFunction, disconnect: DisconnectFunction }} Connectable
  * @typedef {{ connectable: Connectable, id: number }} ActiveEventListenerData
@@ -36,29 +36,40 @@ fm.enableAll();
  * @typedef { ( id: number ) => void } DisconnectFunction
 */
 
+//TODO
+//FIXME
+// The reason i had a builder pattern (FeatureManagerConfig), was to enforce the registration of all features before using them, so features can cross reference each other.
+// With the current implementation, it is not enforced.
+
 class FeatureManager {
     #features;
-    /** @type {Map<FeatureFactory, EnabledFeature>} */
+    /** @type {Map<Feature, EnabledFeature>} */
     #enabledFeatures = new Map();
-    constructor(/** @type {Set<FeatureFactory>} */ features) {
+    constructor(/** @type {Set<Feature>} */ features) {
         this.#features = features;
     }
 
     enableAll() {
-        this.#features.forEach(featureFactory => this.enable(featureFactory));
+        return this.enableMore(...this.#features);
     }
 
     disableAll() {
-        this.#enabledFeatures.forEach((_, featureFactory) => this.disable(featureFactory));
+        return this.disableMore(...this.#enabledFeatures.keys());
     }
 
+    enableMore(/** @type {Feature[]} */ ...features) {
+        return features.map(f => this.enable(f));
+    }
 
-    enable(/** @type {FeatureFactory} */ featureFactory) {
-        const existingFeatData = this.#enabledFeatures.get(featureFactory);
+    disableMore(/** @type {Feature[]} */ ...features) {
+        return features.map(f => this.disable(f));
+    }
+
+    enable(/** @type {Feature} */ feature) {
+        const existingFeatData = this.#enabledFeatures.get(feature);
         if (existingFeatData) {
             return false;
-        }
-        else {
+        } else {
             const eventListeners = new Set();
             const timeouts = new Set();
             const setTimeout = /** @type {SetTimeout} */ (handler, timeout, ...args) => {
@@ -66,19 +77,19 @@ class FeatureManager {
                 timeouts.add(id);
                 return id;
             };
-            const feature = featureFactory({ setTimeout });
-            feature.onEnable?.();
-            feature.eventListeners?.forEach(({ connectable, event, callback }) => {
+            const newFeature = feature({ setTimeout });
+            newFeature.onEnable?.();
+            newFeature.eventListeners?.forEach(({ connectable, event, callback }) => {
                 const id = connectable.connect(event, callback);
                 eventListeners.add({ connectable, id });
             });
-            this.#enabledFeatures.set(featureFactory, { timeouts, eventListeners, feature });
+            this.#enabledFeatures.set(feature, { timeouts, eventListeners, feature: newFeature });
             return true;
         }
     }
 
-    disable(/** @type {FeatureFactory} */ featureFactory) {
-        const existingFeatData = this.#enabledFeatures.get(featureFactory);
+    disable(/** @type {Feature} */ feature) {
+        const existingFeatData = this.#enabledFeatures.get(feature);
         if (existingFeatData) {
             existingFeatData.timeouts.forEach(id => {
                 globalThis.clearTimeout(id);
@@ -87,25 +98,22 @@ class FeatureManager {
                 el.connectable.disconnect(el.id);
             });
             existingFeatData.feature.onDisable?.();
-            this.#enabledFeatures.delete(featureFactory);
+            this.#enabledFeatures.delete(feature);
             return true;
-        }
-        else {
+        } else {
             return false;
         }
     }
+
 }
 
-export default class FeatureManagerConfig {
-    /** @type {Set<FeatureFactory>} */
+class FeatureManagerConfig {
+    /** @type {Set<Feature>} */
     #features;
     constructor(features = new Set()) {
         this.#features = features;
     }
-    static empty() {
-        return new FeatureManagerConfig();
-    }
-    addFeature(/** @type {FeatureFactory} */ createFeature) {
+    addFeature(/** @type {Feature} */ createFeature) {
         const newSet = new Set([...this.#features, createFeature]);
         return new FeatureManagerConfig(newSet);
     }
@@ -113,3 +121,6 @@ export default class FeatureManagerConfig {
         return new FeatureManager(this.#features);
     }
 }
+
+export default { empty: () => new FeatureManagerConfig() };
+export const Feature = (/** @type { Feature | CompiledFeature } */ feature) => (typeof feature === "function") ? feature : () => feature;
